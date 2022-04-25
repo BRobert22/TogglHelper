@@ -65,11 +65,7 @@ namespace TogglHelper.Services
                 var response = await SendRequest("/reports/api/v2/details", parameters);
 
                 if (response.StatusCode == System.Net.HttpStatusCode.OK)
-                {
                     return JsonConvert.DeserializeObject<DetailsResponse>(response.Content);
-                    //if (objContent != null && objContent.data != null)
-                    //    return objContent.data;
-                }
             }
             catch (Exception ex) { }
 

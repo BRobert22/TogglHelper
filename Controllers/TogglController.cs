@@ -50,6 +50,8 @@ namespace TogglHelper.Controllers
 
         internal static async Task GetTimeEntriesAsync()
         {
+            if (Globals.TimeEntries != null)
+                Globals.TimeEntries = null;
             var result = await Services.TogglService.GetTimeEntriesAsync();
 
             foreach (var entry in result.Data)

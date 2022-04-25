@@ -34,6 +34,32 @@ namespace TogglHelper.Controllers
             }
         }
 
+        public static void GetIsolatedKayakoUser()
+        {
+            try
+            {
+                var json = GetIsolatedFile("kayakoUser.txt");
+                Globals.KayakoUser = JsonConvert.DeserializeObject<Models.Kayako.User>(json);
+            }
+            catch (Exception)
+            {
+                // ignored
+            }
+        }
+
+        public static void SetIsolatedKayakolUser()
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(Globals.KayakoUser);
+                SetIsolatedFile("kayakoUser.txt", json);
+            }
+            catch (Exception)
+            {
+                // ignored
+            }
+        }
+
         private static string GetIsolatedFile(string fileName)
         {
             IsolatedStorageFile isoStore = IsolatedStorageFile.GetStore(IsolatedStorageScope.User | IsolatedStorageScope.Assembly, null, null);

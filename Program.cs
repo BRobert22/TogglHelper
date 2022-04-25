@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using TogglHelper.Controllers;
 
 namespace TogglHelper
@@ -8,11 +9,19 @@ namespace TogglHelper
         private static async Task Main(string[] args)
         {
             IsolatedFileController.GetIsolatedTogglUser();
+            IsolatedFileController.GetIsolatedKayakoUser();
+
+            if (!ConfigurationController.getKayakoSettingValues())
+            {
+                Console.ReadKey();
+                return;
+            }
 
             if (string.IsNullOrEmpty(Globals.TogglUser?.ApiToken))
                 await Screens.Screens.LoginToggl();
 
-            Helpers.ConfigurationHelper.getKayakoSettingValues();
+            if (Globals.KayakoUser == null)
+                KayakoController.LoginKayako();
 
             Screens.Screens.MainMenu();
         }

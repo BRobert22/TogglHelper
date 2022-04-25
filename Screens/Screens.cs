@@ -1,9 +1,12 @@
 ﻿using Spectre.Console;
 using System;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using TogglHelper.Controllers;
 using TogglHelper.Enums;
+using TogglHelper.Services;
+using static TogglHelper.Enums.ScreenOptions;
 
 namespace TogglHelper.Screens
 {
@@ -12,27 +15,31 @@ namespace TogglHelper.Screens
         private static void MainHeader()
         {
             Console.Clear();
-            AnsiConsole.MarkupLine($"Hello [blue]{Globals.TogglUser.Username}[/]");
-            AnsiConsole.MarkupLine($"Current Workspace: [blue]{Globals.TogglUser.CurrentWorkspace.Name}[/]");
+
+            var panelContent = new StringBuilder($"Hello [blue]{Globals.TogglUser.Username}[/]");
+            panelContent.Append($"{Environment.NewLine}Workspace: [blue]{Globals.TogglUser.CurrentWorkspace.Name}[/]");
+
             if (Globals.DateFilter != DateTime.MinValue)
-                AnsiConsole.MarkupLine($"Filter Date: [blue]{Globals.DateFilter:dd/MM/yyyy}[/]");
+                panelContent.Append($"{Environment.NewLine}Filter Date: [blue]{Globals.DateFilter:dd/MM/yyyy}[/]");
 
             if (Globals.TimeEntries?.Count > 0)
             {
                 var totalWithoutID = Globals.TimeEntries.Count(x => x.TicketID.Equals(0));
-                var str = $"Time Entries: {Globals.TimeEntries.Count}";
+                var str = $"{Environment.NewLine}Time Entries: [blue]{Globals.TimeEntries.Count}[/]";
                 if (totalWithoutID > 0)
-                    str.Concat($" ({totalWithoutID} Without ID)");
+                    str.Concat($" ([red]{totalWithoutID} Without ID[/])");
 
                 var synced = Globals.TimeEntries.Count(x => x.Status.Equals("synced"));
                 if (synced > 0)
-                    str.Concat($" ({synced} synced)");
+                    str.Concat($" ([green]{synced} synced[/])");
 
-                AnsiConsole.MarkupLine(str);
-                AnsiConsole.MarkupLine($"Total time: {Helpers.TimeHelper.ConvertSecondsToString(Globals.TimeEntries.Sum(x => x.DurationInSeconds))}");
+                panelContent.Append(str);
+                panelContent.Append($"{Environment.NewLine}Total time: [blue]{Helpers.TimeHelper.ConvertSecondsToString(Globals.TimeEntries.Sum(x => x.DurationInSeconds))}[/]");
             }
 
-            AnsiConsole.MarkupLine("");
+            var panel = new Panel(panelContent.ToString());
+            panel.Border = BoxBorder.Rounded;
+            AnsiConsole.Write(panel);
         }
 
         internal static void MainMenu()
@@ -46,7 +53,8 @@ namespace TogglHelper.Screens
                 new SelectionPrompt<string>()
                     .AddChoices(new[] {
                         MainMenuOptions.Today, MainMenuOptions.Yesterday, MainMenuOptions.InformDate,
-                        MainMenuOptions.SwitchWorkspace, MainMenuOptions.Logout, MainMenuOptions.Close
+                        MainMenuOptions.SwitchWorkspace, MainMenuOptions.LogoutToggl, MainMenuOptions.LogoutKayako,
+                        MainMenuOptions.Close
                     }));
 
                 switch (op)
@@ -65,8 +73,11 @@ namespace TogglHelper.Screens
                     case MainMenuOptions.SwitchWorkspace:
                         TogglController.SetWorkspace();
                         break;
-                    case MainMenuOptions.Logout:
+                    case MainMenuOptions.LogoutToggl:
                         LogoutToggl();
+                        break;
+                    case MainMenuOptions.LogoutKayako:
+                        LogoutKayako();
                         break;
                     case MainMenuOptions.Close:
                         Environment.Exit(-1);
@@ -92,38 +103,110 @@ namespace TogglHelper.Screens
                 switch (op)
                 {
                     case MenuTimeEntriesLoadedOptions.SendToKayako:
+                        SendToKayakoMenu();
                         break;
                     case MenuTimeEntriesLoadedOptions.AddNote:
                         AddNoteMenu();
                         break;
                     case MenuTimeEntriesLoadedOptions.ListTimeEntries:
+                        ShowTimeEntriesTable();
                         break;
                     case MenuTimeEntriesLoadedOptions.ReloadTimesEntries:
+                        LoadTimeEntries();
                         break;
                 }
             } while (op != MenuTimeEntriesLoadedOptions.Return);
         }
 
+        private static void SendToKayakoMenu()
+        {
+            AnsiConsole.Progress()
+                .Start(ctx =>
+                {
+                    var task = ctx.AddTask("[green]Sending time entries[/]");
+
+                    foreach (var TimeEntry in Globals.TimeEntries)
+                    {
+                        KayakoController.SendTimeEntries(TimeEntry);
+
+                        while (!ctx.IsFinished)
+                            task.Increment(100 / Globals.TimeEntries.Count);
+                    }
+                });
+        }
+
+        private static void ShowTimeEntriesTable()
+        {
+            var table = new Table();
+
+            table.AddColumn("Description");
+            table.AddColumn("Duration");
+            table.AddColumn("Status");
+            table.AddColumn("Has note?");
+
+            foreach (var entry in Globals.TimeEntries)
+                table.AddRow(Markup.Escape(entry.Description), entry.PrintDuration(), entry.Status, entry.hasNote());
+
+            AnsiConsole.Write(table);
+            Console.ReadKey();
+        }
+
         private static void AddNoteMenu()
         {
             string op;
+            var index = 0;
             do
             {
                 Console.Clear();
-                var options = Globals.TimeEntries.Where(x => !string.IsNullOrEmpty(x.Description)).Select(x => x.Description.Replace("[", "[[").Replace("]", "]]")).ToArray();
-                options.Append("Return");
-                op = AnsiConsole.Prompt(
-                    new SelectionPrompt<string>()
-                        .AddChoices(options));
+                MainHeader();
+                var table = new Table();
 
-                var entry = Globals.TimeEntries.FirstOrDefault(x => x.Description == op.Replace("[[", "[").Replace("]]", "]"));
-                if (entry != null)
+                table.AddColumn("Description");
+                table.AddColumn("Duration");
+                table.AddColumn("Status");
+                table.AddColumn("Has note?");
+
+                for (int i = 0; i < Globals.TimeEntries.Count; i++)
+                    AddItemToTable(index, table, i);
+
+                AnsiConsole.Write(table);
+                var keyPressed = Console.ReadKey();
+
+                switch (keyPressed.Key)
                 {
-                    AnsiConsole.Ask<string>($"[blue]Current Note[/]:{entry.Note}");
-                    var note = AnsiConsole.Ask<string>("[blue]Note[/]:");
-                    entry.Note = note;
+                    case ConsoleKey.Escape:
+                    case ConsoleKey.Backspace:
+                        return;
+                    case ConsoleKey.Enter:
+                        var entry = Globals.TimeEntries[index]; // Globals.TimeEntries.FirstOrDefault(x => x.Description.Equals(op.Replace("[[", "[").Replace("]]", "]")));
+                        if (entry != null)
+                        {
+                            if (!string.IsNullOrEmpty(entry.Note))
+                                AnsiConsole.MarkupLine($"[blue]Current Note[/]:{entry.Note}");
+                            var note = AnsiConsole.Ask<string>("[blue]New Note[/]:");
+                            entry.Note = note;
+                        }
+                        break;
+                    case ConsoleKey.UpArrow:
+                        index--;
+                        break;
+                    case ConsoleKey.DownArrow:
+                        index++;
+                        break;
+                    default:
+                        break;
                 }
-            } while (op != "Return");
+            } while (true);
+        }
+
+        private static void AddItemToTable(int index, Table table, int i)
+        {
+            var isSelectedRow = i == index;
+            var item = Globals.TimeEntries[i];
+            if (isSelectedRow)
+                table.AddRow($"[blue][bold]{Markup.Escape(item.Description)}[/][/]", $"[blue][bold]{Markup.Escape(item.PrintDuration())}[/][/]", $"[blue][bold]{Markup.Escape(item.Status)}[/][/]", $"[blue][bold]{Markup.Escape(item.hasNote())}[/][/]");
+            else
+                table.AddRow(Markup.Escape(item.Description), item.PrintDuration(), item.Status, item.hasNote());
         }
 
         internal static async Task LoginToggl()
@@ -180,6 +263,14 @@ namespace TogglHelper.Screens
             IsolatedFileController.SetIsolatedTogglUser();
             var task = LoginToggl();
             task.Wait();
+            MainMenu();
+        }
+
+        private static void LogoutKayako()
+        {
+            Globals.KayakoUser = null;
+            IsolatedFileController.SetIsolatedKayakolUser();
+            KayakoController.LoginKayako();
             MainMenu();
         }
 
